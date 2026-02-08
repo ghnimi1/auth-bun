@@ -8,6 +8,7 @@ const router = Router();
 // Public routes
 router.post('/register', validate(registerValidation), AuthController.register);
 router.post('/login', validate(loginValidation), AuthController.login);
+router.post('/login-2fa', validate(loginValidation), AuthController.loginWith2FA); // Nouvelle route
 router.post('/refresh-token', validateRefreshToken, AuthController.refreshToken);
 
 // Protected routes

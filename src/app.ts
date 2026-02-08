@@ -9,6 +9,7 @@ import { connectDB } from './config/database';
 import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
 import indexRoutes from './routes/indexRoutes';
+import otpRoutes from './routes/otpRoutes';
 import { Logger } from './utils/logger';
 
 const app: Application = express();
@@ -46,6 +47,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use('/api', indexRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/otp', otpRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

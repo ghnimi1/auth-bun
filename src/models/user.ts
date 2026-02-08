@@ -1,27 +1,35 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcrypt';
 
-/**
- * User Interface
- */
 export interface IUser extends Document {
   email: string;
   password: string;
   name: string;
   role: 'user' | 'admin';
   isActive: boolean;
+  isEmailVerified: boolean;
   lastLogin?: Date;
   refreshToken?: string;
+  
+  // OTP fields
+  otp?: string;
+  otpExpiry?: Date;
+  otpAttempts: number;
+  otpBlockedUntil?: Date;
+  
+  // Password reset
+  resetPasswordToken?: string;
+  resetPasswordExpiry?: Date;
+  
   createdAt: Date;
   updatedAt: Date;
-
+  
   comparePassword(candidatePassword: string): Promise<boolean>;
-  updateLastLogin(): Promise<void>;
+  isOTPBlocked(): boolean;
+  incrementOTPAttempts(): Promise<void>;
+  resetOTPAttempts(): Promise<void>;
 }
 
-/**
- * User Schema
- */
 const userSchema = new Schema<IUser>(
   {
     email: {
@@ -52,11 +60,44 @@ const userSchema = new Schema<IUser>(
       type: Boolean,
       default: true,
     },
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
     lastLogin: {
       type: Date,
     },
     refreshToken: {
       type: String,
+      select: false,
+    },
+    
+    // OTP fields
+    otp: {
+      type: String,
+      select: false,
+    },
+    otpExpiry: {
+      type: Date,
+      select: false,
+    },
+    otpAttempts: {
+      type: Number,
+      default: 0,
+      select: false,
+    },
+    otpBlockedUntil: {
+      type: Date,
+      select: false,
+    },
+    
+    // Password reset
+    resetPasswordToken: {
+      type: String,
+      select: false,
+    },
+    resetPasswordExpiry: {
+      type: Date,
       select: false,
     },
   },
@@ -92,6 +133,41 @@ userSchema.methods.updateLastLogin = async function (): Promise<void> {
   await this.save();
 };
 
+
+// Check if OTP attempts are blocked
+userSchema.methods.isOTPBlocked = function (): boolean {
+  if (this.otpBlockedUntil && new Date() < this.otpBlockedUntil) {
+    return true;
+  }
+  
+  // Reset block if time has passed
+  if (this.otpBlockedUntil && new Date() >= this.otpBlockedUntil) {
+    this.otpAttempts = 0;
+    this.otpBlockedUntil = undefined;
+    return false;
+  }
+  
+  return false;
+};
+
+// Increment OTP attempts
+userSchema.methods.incrementOTPAttempts = async function (): Promise<void> {
+  this.otpAttempts += 1;
+  
+  // Block for 30 minutes after 5 failed attempts
+  if (this.otpAttempts >= 5) {
+    this.otpBlockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+  }
+  
+  await this.save();
+};
+
+// Reset OTP attempts
+userSchema.methods.resetOTPAttempts = async function (): Promise<void> {
+  this.otpAttempts = 0;
+  this.otpBlockedUntil = undefined;
+  await this.save();
+};
 /**
  * Export Model
  */
