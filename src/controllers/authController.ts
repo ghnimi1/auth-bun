@@ -7,255 +7,328 @@ import { Logger } from '../utils/logger';
 import type { AuthRequest } from '../middleware/auth';
 
 export class AuthController {
-  // Register new user
-  static async register(req: Request, res: Response): Promise<void> {
-    try {
-      const { email, password, name } = req.body;
+    // Login with email/password (sends OTP for 2FA)
+    static async loginWith2FA(req: Request, res: Response): Promise<void> {
+        try {
+            const { email, password } = req.body;
 
-      // Check if user already exists
-      const existingUser = await User.findOne({ email });
-      if (existingUser) {
-        res.status(400).json({ error: 'Email already exists' });
-        return;
-      }
+            // Find user by email with password
+            const user = await User.findOne({ email }).select('+password');
 
-      // Create new user
-      const user = new User({
-        email,
-        password,
-        name,
-      });
+            if (!user) {
+                res.status(401).json({ error: 'Invalid credentials' });
+                return;
+            }
 
-      await user.save();
+            // Check if user is active
+            if (!user.isActive) {
+                res.status(401).json({ error: 'Account is inactive' });
+                return;
+            }
 
-      // Generate tokens
-      const tokens = generateTokens(user._id.toString());
+            // Verify password
+            const isValidPassword = await user.comparePassword(password);
+            if (!isValidPassword) {
+                res.status(401).json({ error: 'Invalid credentials' });
+                return;
+            }
 
-      // Save refresh token to user
-      user.refreshToken = tokens.refreshToken;
-      await user.save();
+            // Check if email is verified
+            if (!user.isEmailVerified) {
+                res.status(403).json({
+                    error: 'Email not verified',
+                    requiresVerification: true,
+                    email: user.email,
+                });
+                return;
+            }
 
-      // Set refresh token as HTTP-only cookie
-      setRefreshTokenCookie(res, tokens.refreshToken);
+            // Send OTP for 2FA
+            const otpService = require('../services/otpService').OTPService;
+            const otpResult = await otpService.sendOTP(email, 'login');
 
-      // Update last login
-      await user.updateLastLogin();
+            if (!otpResult.success) {
+                res.status(400).json({ error: otpResult.message });
+                return;
+            }
 
-      Logger.info(`User registered: ${email}`);
+            // Return temporary token or session ID for 2FA verification
+            const tempToken = require('jsonwebtoken').sign(
+                { userId: user._id, email: user.email, purpose: '2fa' },
+                process.env.JWT_SECRET || 'temp-secret',
+                { expiresIn: '10m' }
+            );
 
-      res.status(201).json({
-        success: true,
-        message: 'User registered successfully',
-        user: sanitizeUser(user),
-        accessToken: tokens.accessToken,
-      });
-    } catch (error: any) {
-      Logger.error('Registration error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+            Logger.info(`2FA OTP sent to ${email}`);
+
+            res.json({
+                success: true,
+                message: 'OTP sent for 2FA verification',
+                requires2FA: true,
+                tempToken,
+                // Only include OTP in development for testing
+                ...(process.env.NODE_ENV === 'development' && { otp: otpResult.otp }),
+            });
+        } catch (error: any) {
+            Logger.error('Login with 2FA error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
     }
-  }
 
-  // Login user
-  static async login(req: Request, res: Response): Promise<void> {
-    try {
-      const { email, password } = req.body;
+    // Mettez à jour la méthode register pour inclure l'envoi d'OTP
+    static async register(req: Request, res: Response): Promise<void> {
+        try {
+            const { email, password, name } = req.body;
 
-      // Find user by email with password
-      const user = await User.findOne({ email }).select('+password');
-      
-      if (!user) {
-        res.status(401).json({ error: 'Invalid credentials' });
-        return;
-      }
+            // Check if user already exists
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                res.status(400).json({ error: 'Email already exists' });
+                return;
+            }
 
-      // Check if user is active
-      if (!user.isActive) {
-        res.status(401).json({ error: 'Account is inactive' });
-        return;
-      }
+            // Create new user
+            const user = new User({
+                email,
+                password,
+                name,
+                isEmailVerified: false, // Email not verified yet
+            });
 
-      // Verify password
-      const isValidPassword = await user.comparePassword(password);
-      if (!isValidPassword) {
-        res.status(401).json({ error: 'Invalid credentials' });
-        return;
-      }
+            await user.save();
 
-      // Generate tokens
-      const tokens = generateTokens(user._id.toString());
+            // Send OTP for email verification
+            const otpService = require('../services/otpService').OTPService;
+            const otpResult = await otpService.sendOTP(email, 'verification');
 
-      // Save refresh token to user
-      user.refreshToken = tokens.refreshToken;
-      await user.save();
+            if (!otpResult.success) {
+                // User created but OTP failed to send
+                res.status(201).json({
+                    success: true,
+                    message: 'User registered but OTP failed to send. Please request a new OTP.',
+                    user: sanitizeUser(user),
+                    requiresVerification: true,
+                });
+                return;
+            }
 
-      // Set refresh token as HTTP-only cookie
-      setRefreshTokenCookie(res, tokens.refreshToken);
+            Logger.info(`User registered and OTP sent: ${email}`);
 
-      // Update last login
-      await user.updateLastLogin();
-
-      Logger.info(`User logged in: ${email}`);
-
-      res.json({
-        success: true,
-        message: 'Login successful',
-        user: sanitizeUser(user),
-        accessToken: tokens.accessToken,
-      });
-    } catch (error: any) {
-      Logger.error('Login error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+            res.status(201).json({
+                success: true,
+                message: 'User registered successfully. Please verify your email with the OTP sent.',
+                user: sanitizeUser(user),
+                requiresVerification: true,
+                // Only include OTP in development for testing
+                ...(process.env.NODE_ENV === 'development' && { otp: otpResult.otp }),
+            });
+        } catch (error: any) {
+            Logger.error('Registration error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
     }
-  }
 
-  // Logout user
-  static async logout(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const user = req.user;
+    // Login user
+    static async login(req: Request, res: Response): Promise<void> {
+        try {
+            const { email, password } = req.body;
 
-      if (user) {
-        // Clear refresh token from user
-        user.refreshToken = undefined;
-        await user.save();
-      }
+            // Find user by email with password
+            const user = await User.findOne({ email }).select('+password');
 
-      // Clear refresh token cookie
-      clearRefreshTokenCookie(res);
+            if (!user) {
+                res.status(401).json({ error: 'Invalid credentials' });
+                return;
+            }
 
-      Logger.info(`User logged out: ${user?.email}`);
+            // Check if user is active
+            if (!user.isActive) {
+                res.status(401).json({ error: 'Account is inactive' });
+                return;
+            }
 
-      res.json({
-        success: true,
-        message: 'Logout successful',
-      });
-    } catch (error: any) {
-      Logger.error('Logout error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+            // Verify password
+            const isValidPassword = await user.comparePassword(password);
+            if (!isValidPassword) {
+                res.status(401).json({ error: 'Invalid credentials' });
+                return;
+            }
+
+            // Generate tokens
+            const tokens = generateTokens(user._id.toString());
+
+            // Save refresh token to user
+            user.refreshToken = tokens.refreshToken;
+            await user.save();
+
+            // Set refresh token as HTTP-only cookie
+            setRefreshTokenCookie(res, tokens.refreshToken);
+
+            // Update last login
+            await user.updateLastLogin();
+
+            Logger.info(`User logged in: ${email}`);
+
+            res.json({
+                success: true,
+                message: 'Login successful',
+                user: sanitizeUser(user),
+                accessToken: tokens.accessToken,
+            });
+        } catch (error: any) {
+            Logger.error('Login error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
     }
-  }
 
-  // Refresh access token
-  static async refreshToken(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const user = req.user;
-      const oldRefreshToken = req.body.refreshToken || req.cookies.refreshToken;
+    // Logout user
+    static async logout(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const user = req.user;
 
-      if (!oldRefreshToken) {
-        res.status(400).json({ error: 'Refresh token required' });
-        return;
-      }
+            if (user) {
+                // Clear refresh token from user
+                user.refreshToken = undefined;
+                await user.save();
+            }
 
-      // Verify old refresh token
-      jwt.verify(oldRefreshToken, env.JWT_REFRESH_SECRET);
+            // Clear refresh token cookie
+            clearRefreshTokenCookie(res);
 
-      // Generate new tokens
-      const tokens = generateTokens(user._id.toString());
+            Logger.info(`User logged out: ${user?.email}`);
 
-      // Save new refresh token to user
-      user.refreshToken = tokens.refreshToken;
-      await user.save();
-
-      // Set new refresh token as HTTP-only cookie
-      setRefreshTokenCookie(res, tokens.refreshToken);
-
-      Logger.info(`Token refreshed for user: ${user.email}`);
-
-      res.json({
-        success: true,
-        accessToken: tokens.accessToken,
-      });
-    } catch (error: any) {
-      Logger.error('Refresh token error:', error);
-      res.status(401).json({ error: 'Invalid refresh token' });
+            res.json({
+                success: true,
+                message: 'Logout successful',
+            });
+        } catch (error: any) {
+            Logger.error('Logout error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
     }
-  }
 
-  // Get current user profile
-  static async getProfile(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const user = await User.findById(req.user._id);
-      
-      if (!user) {
-        res.status(404).json({ error: 'User not found' });
-        return;
-      }
+    // Refresh access token
+    static async refreshToken(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const user = req.user;
+            const oldRefreshToken = req.body.refreshToken || req.cookies.refreshToken;
 
-      res.json({
-        success: true,
-        user: sanitizeUser(user),
-      });
-    } catch (error: any) {
-      Logger.error('Get profile error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+            if (!oldRefreshToken) {
+                res.status(400).json({ error: 'Refresh token required' });
+                return;
+            }
+
+            // Verify old refresh token
+            jwt.verify(oldRefreshToken, env.JWT_REFRESH_SECRET);
+
+            // Generate new tokens
+            const tokens = generateTokens(user._id.toString());
+
+            // Save new refresh token to user
+            user.refreshToken = tokens.refreshToken;
+            await user.save();
+
+            // Set new refresh token as HTTP-only cookie
+            setRefreshTokenCookie(res, tokens.refreshToken);
+
+            Logger.info(`Token refreshed for user: ${user.email}`);
+
+            res.json({
+                success: true,
+                accessToken: tokens.accessToken,
+            });
+        } catch (error: any) {
+            Logger.error('Refresh token error:', error);
+            res.status(401).json({ error: 'Invalid refresh token' });
+        }
     }
-  }
 
-  // Update user profile
-  static async updateProfile(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const updates = req.body;
-      const userId = req.user._id;
+    // Get current user profile
+    static async getProfile(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const user = await User.findById(req.user._id);
 
-      // Prevent updating sensitive fields
-      delete updates.password;
-      delete updates.role;
-      delete updates.refreshToken;
+            if (!user) {
+                res.status(404).json({ error: 'User not found' });
+                return;
+            }
 
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { $set: updates },
-        { new: true, runValidators: true }
-      );
-
-      if (!user) {
-        res.status(404).json({ error: 'User not found' });
-        return;
-      }
-
-      Logger.info(`Profile updated for user: ${user.email}`);
-
-      res.json({
-        success: true,
-        message: 'Profile updated successfully',
-        user: sanitizeUser(user),
-      });
-    } catch (error: any) {
-      Logger.error('Update profile error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+            res.json({
+                success: true,
+                user: sanitizeUser(user),
+            });
+        } catch (error: any) {
+            Logger.error('Get profile error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
     }
-  }
 
-  // Change password
-  static async changePassword(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const { currentPassword, newPassword } = req.body;
-      const user = await User.findById(req.user._id).select('+password');
+    // Update user profile
+    static async updateProfile(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const updates = req.body;
+            const userId = req.user._id;
 
-      if (!user) {
-        res.status(404).json({ error: 'User not found' });
-        return;
-      }
+            // Prevent updating sensitive fields
+            delete updates.password;
+            delete updates.role;
+            delete updates.refreshToken;
 
-      // Verify current password
-      const isValidPassword = await user.comparePassword(currentPassword);
-      if (!isValidPassword) {
-        res.status(401).json({ error: 'Current password is incorrect' });
-        return;
-      }
+            const user = await User.findByIdAndUpdate(
+                userId,
+                { $set: updates },
+                { new: true, runValidators: true }
+            );
 
-      // Update password
-      user.password = newPassword;
-      await user.save();
+            if (!user) {
+                res.status(404).json({ error: 'User not found' });
+                return;
+            }
 
-      Logger.info(`Password changed for user: ${user.email}`);
+            Logger.info(`Profile updated for user: ${user.email}`);
 
-      res.json({
-        success: true,
-        message: 'Password changed successfully',
-      });
-    } catch (error: any) {
-      Logger.error('Change password error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+            res.json({
+                success: true,
+                message: 'Profile updated successfully',
+                user: sanitizeUser(user),
+            });
+        } catch (error: any) {
+            Logger.error('Update profile error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
     }
-  }
+
+    // Change password
+    static async changePassword(req: AuthRequest, res: Response): Promise<void> {
+        try {
+            const { currentPassword, newPassword } = req.body;
+            const user = await User.findById(req.user._id).select('+password');
+
+            if (!user) {
+                res.status(404).json({ error: 'User not found' });
+                return;
+            }
+
+            // Verify current password
+            const isValidPassword = await user.comparePassword(currentPassword);
+            if (!isValidPassword) {
+                res.status(401).json({ error: 'Current password is incorrect' });
+                return;
+            }
+
+            // Update password
+            user.password = newPassword;
+            await user.save();
+
+            Logger.info(`Password changed for user: ${user.email}`);
+
+            res.json({
+                success: true,
+                message: 'Password changed successfully',
+            });
+        } catch (error: any) {
+            Logger.error('Change password error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
 }

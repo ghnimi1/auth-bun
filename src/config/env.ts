@@ -23,6 +23,25 @@ export const env = {
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
   RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
+
+  // Email Configuration
+  SMTP_HOST: process.env.SMTP_HOST || 'smtp.gmail.com',
+  SMTP_PORT: parseInt(process.env.SMTP_PORT || '587'),
+  SMTP_SECURE: process.env.SMTP_SECURE === 'true',
+  SMTP_USER: process.env.SMTP_USER || '',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  
+  // Email From
+  EMAIL_FROM: process.env.EMAIL_FROM || 'no-reply@yourapp.com',
+  EMAIL_FROM_NAME: process.env.EMAIL_FROM_NAME || 'Your App',
+  
+  // OTP Configuration
+  OTP_EXPIRY_MINUTES: parseInt(process.env.OTP_EXPIRY_MINUTES || '10'),
+  OTP_LENGTH: parseInt(process.env.OTP_LENGTH || '6'),
+  OTP_DIGITS_ONLY: process.env.OTP_DIGITS_ONLY === 'true',
+  
+  // App URL
+  APP_URL: process.env.APP_URL || 'http://localhost:3000',
 } as const;
 
 export const isProduction = env.NODE_ENV === 'production';
