@@ -10,6 +10,7 @@ import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
 import productRoutes from './routes/productRoutes';
 import categoryRoutes from './routes/categoryRoutes';
+import batchRoutes from './routes/batchRoutes';
 import indexRoutes from './routes/indexRoutes';
 import { Logger } from './utils/logger';
 
@@ -55,6 +56,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/batches', batchRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
