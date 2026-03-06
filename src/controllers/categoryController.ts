@@ -7,51 +7,53 @@ export class CategoryController {
    * Get all categories with optional filtering and pagination
    * GET /api/categories
    */
-  static async getAll(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { search, isActive = true, sortBy = 'displayOrder', order = 'asc', page = 1, limit = 50 } = req.query
+ static async getAll(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { search, isActive, sortBy = 'displayOrder', order = 'asc', page = 1, limit = 50 } = req.query
 
-      const skip = (Number(page) - 1) * Number(limit)
-      const sortOrder: 1 | -1 = order === 'desc' ? -1 : 1
+    const skip = (Number(page) - 1) * Number(limit)
+    const sortOrder: 1 | -1 = order === 'desc' ? -1 : 1
 
-      // Build query
-      const query: any = {}
+    // Build query
+    const query: any = {}
 
-      if (isActive !== undefined) {
-        query.isActive = isActive === 'true'
-      }
-
-      if (search) {
-        query.$text = { $search: String(search) }
-      }
-
-      // Execute query
-      const categories = await Category.find(query)
-        .sort({ [String(sortBy)]: sortOrder })
-        .skip(skip)
-        .limit(Number(limit))
-        .exec()
-
-      const total = await Category.countDocuments(query)
-
-      Logger.info('Categories retrieved', {
-        count: categories.length,
-        total,
-        search,
-      })
-
-      res.json({
-        success: true,
-        data: categories,
-        count: categories.length,
-        total,
-        page: Number(page),
-        pages: Math.ceil(total / Number(limit)),
-      })
-    } catch (error) {
-      console.log(error)
+    // Seulement ajouter le filtre isActive s'il est spécifié
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true'
     }
+
+    if (search) {
+      query.$text = { $search: String(search) }
+    }
+
+    // Execute query
+    const categories = await Category.find(query)
+      .sort({ [String(sortBy)]: sortOrder })
+      .skip(skip)
+      .limit(Number(limit))
+      .exec()
+
+    const total = await Category.countDocuments(query)
+
+    Logger.info('Categories retrieved', {
+      count: categories.length,
+      total,
+      search,
+    })
+
+    res.json({
+      success: true,
+      data: categories,
+      count: categories.length,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+    })
+  } catch (error) {
+    console.error('Error in getAll:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
+}
 
   /**
    * Get a single category by ID
@@ -77,7 +79,7 @@ export class CategoryController {
         data: category,
       })
     } catch (error) {
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -105,7 +107,7 @@ export class CategoryController {
         data: category,
       })
     } catch (error) {
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -167,7 +169,7 @@ export class CategoryController {
           errors: Object.values(error.errors).map((e: any) => e.message),
         })
       }
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -230,7 +232,7 @@ export class CategoryController {
           errors: Object.values(error.errors).map((e: any) => e.message),
         })
       }
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -261,7 +263,7 @@ export class CategoryController {
         message: 'Catégorie supprimée avec succès',
       })
     } catch (error) {
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -293,7 +295,7 @@ export class CategoryController {
         data: category,
       })
     } catch (error) {
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -325,7 +327,7 @@ export class CategoryController {
         data: category,
       })
     } catch (error) {
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 
@@ -354,7 +356,7 @@ export class CategoryController {
         },
       })
     } catch (error) {
-      console.log(error)
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 }
