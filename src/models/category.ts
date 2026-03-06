@@ -60,7 +60,7 @@ const CategorySchema = new Schema<ICategory>(
 
 // Index pour la recherche
 CategorySchema.index({ name: 'text', slug: 'text', description: 'text' })
-CategorySchema.index({ slug: 1 })
+/* CategorySchema.index({ slug: 1 }) */
 CategorySchema.index({ isActive: 1 })
 CategorySchema.index({ displayOrder: 1 })
 

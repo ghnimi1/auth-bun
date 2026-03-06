@@ -41,14 +41,14 @@ app.use("/api/", limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware
+/* // Request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   Logger.info(`${req.method} ${req.url}`, {
     ip: req.ip,
     userAgent: req.get("user-agent"),
   });
   next();
-});
+}); */
 
 // Routes
 app.use('/api', indexRoutes);
